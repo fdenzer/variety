@@ -7,7 +7,7 @@ This lightweight tool helps you get a sense of your application's schema, as wel
 
 _“I happen to slowly be falling in love with Variety! It is actually one of the most useful tools to get a sense for a messy/unknown data set, and I have put it in a few of our exercises at Zipfian Academy.”_
 
-Jon Dinu  
+Jon Dinu
 _Co-founder of [Zipfian Academy](http://www.zipfianacademy.com/)_
 
 ***
@@ -28,23 +28,23 @@ So, let's see what we've got here:
 
     $ mongo test --eval "var collection = 'users'" variety.js
 
-    +------------------------------------------------------------+
-    | key                | types        | occurrences | percents |
-    | ------------------ | ------------ | ----------- | -------- |
-    | _id                | ObjectId     |           5 |    100.0 |
-    | name               | String       |           5 |    100.0 |
-    | bio                | String       |           3 |     60.0 |
-    | birthday           | String       |           2 |     40.0 |
-    | pets               | Array,String |           2 |     40.0 |
-    | someBinData        | BinData-old  |           1 |     20.0 |
-    | someWeirdLegacyKey | String       |           1 |     20.0 |
-    +------------------------------------------------------------+
+    +------------------------------------------------------------------+
+    | key                | types              | occurrences | percents |
+    | ------------------ | ------------       | ----------- | -------- |
+    | _id                | ObjectId           |           5 |    100.0 |
+    | name               | String             |           5 |    100.0 |
+    | bio                | String             |           3 |     60.0 |
+    | birthday           | Date               |           2 |     40.0 |
+    | pets               | Array(1),String(1) |           2 |     40.0 |
+    | someBinData        | BinData-old        |           1 |     20.0 |
+    | someWeirdLegacyKey | String             |           1 |     20.0 |
+    +------------------------------------------------------------------+
 
 _("test" is the database containing the collection we are analyzing.)_
 
 Hmm. Looks like everybody has a "name" and "_id". Most, but not all have a "bio".
 
-Interestingly, it looks like "pets" can be either an array or a string. Will this cause any problems in the application, I wonder?
+Interestingly, it looks like "pets" can be either an array or a string, but there are more arrays than strings. Will this cause any problems in the application, I wonder?
 
 Seems like the first document created has a weird legacy key—those damn fools who built the prototype didn't clean up after themselves. If there were a thousand such early documents, I might cross-reference the codebase to confirm they are no longer used, and then delete them all. That way they'll not confuse any future developers.
 
@@ -131,6 +131,31 @@ One can apply a "sort" constraint, which analyzes documents in the specified ord
 
     $ mongo test --eval "var collection = 'users', sort = { updated_at : -1 }" variety.js
 
+### Include Last Value ###
+
+You can add ```lastValue``` property to show values of the last document.
+
+    $ mongo test --eval "var collection = 'orders', lastValue = true" variety.js
+    
+    +--------------------------------------------------------------------------------------------+
+    | key             | types        | occurrences | percents | lastValue                        |
+    | --------------- | ------------ | ----------- | -------- | -------------------------------- |
+    | _id             | ObjectId     |           1 |    100.0 | 5a834b76f4d3fa6e578a67f6         |
+    | age             | Number       |           1 |    100.0 |                          38.2569 |
+    | animals         | Array        |           1 |    100.0 | [Array]                          |
+    | animals.XX.type | String       |           1 |    100.0 | dog                              |
+    | balance         | NumberLong   |           1 |    100.0 |                 1236458945684846 |
+    | date            | Date         |           1 |    100.0 |                    1513539969000 |
+    | fn              | Object       |           1 |    100.0 | [Object]                         |
+    | fn.code         | String       |           1 |    100.0 | function (x, y){ return x + y; } |
+    | name            | String       |           1 |    100.0 | John                             |
+    | nil             | null         |           1 |    100.0 | [null]                           |
+    | uid             | BinData-UUID |           1 |    100.0 | 3b241101e2bb42558caf4136c566a962 |
+    +--------------------------------------------------------------------------------------------+
+
+If use without ```sort``` it will fetch values of the last natural sorted document.
+Date is converted into timestamp, ObjectId into string and binary data as hex. Other types shown in square brackets.
+
 ### Render Output As JSON For Easy Ingestion and Parsing ###
 
 Variety supports two different output formats:
@@ -148,12 +173,75 @@ Variety can also read that option and mute unnecessary output. This is useful in
 
     $ mongo test --quiet --eval "var collection = 'users', sort = { updated_at : -1 }" variety.js
 
+#### Log Keys and Types As They Arrive Option ####
+Sometimes you want to see the keys and types come in as it happens.  Maybe you have a large dataset and want accurate results, but you also are impatient and want to see something now.  Or maybe you have a large mangled dataset with crazy keys (that probably shouldn't be keys) and Variety is going out of memory.  This option will show you the keys and types as they come in and help you identify problems with your dataset without needing the Variety script to finish.  
+
+    $ mongo test --eval "var collection = 'users', sort = { updated_at : -1 }, logKeysContinuously = true" variety.js
+
+#### Exclude Subkeys ####
+Sometimes you inherit a database full of junk.  Maybe the previous developer put data in the database keys, which causes Variety to go out of memory when run.  After you've run the `logKeysContinuously` to figure out which subkeys may be a problem, you can use this option to run Variety without those subkeys.  
+
+    db.users.insert({name:"Walter", someNestedObject:{a:{b:{c:{d:{e:1}}}}}, otherNestedObject:{a:{b:{c:{d:{e:1}}}}}});
+
+    $ mongo test --eval "var collection = 'users', sort = { updated_at : -1 }, excludeSubkeys = [ 'someNestedObject.a.b' ]" variety.js
+
+    +-----------------------------------------------------------------+
+    | key                         | types    | occurrences | percents |
+    | --------------------------- | -------- | ----------- | -------- |
+    | _id                         | ObjectId |           1 |    100.0 |
+    | name                        | String   |           1 |    100.0 |
+    | someNestedObject            | Object   |           1 |    100.0 |
+    | someNestedObject.a          | Object   |           1 |    100.0 |
+    | someNestedObject.a.b        | Object   |           1 |    100.0 |
+    | otherNestedObject           | Object   |           1 |    100.0 |
+    | otherNestedObject.a         | Object   |           1 |    100.0 |
+    | otherNestedObject.a.b       | Object   |           1 |    100.0 |
+    | otherNestedObject.a.b.c     | Object   |           1 |    100.0 |
+    | otherNestedObject.a.b.c.d   | Object   |           1 |    100.0 |
+    | otherNestedObject.a.b.c.d.e | Number   |           1 |    100.0 |
+    +-----------------------------------------------------------------+
+
+#### Secondary Reads ####
+Analyzing a large collection on a busy replica set primary could take a lot longer than if you read from a secondary. To do so, we have to tell MongoDB it's okay to perform secondary reads
+by setting the ```slaveOk``` property to ```true```:
+
+    $ mongo secondary.replicaset.member:31337/somedb --eval "var collection = 'users', slaveOk = true" variety.js
+
 ### Save Results in MongoDB For Future Use ###
-By default, Variety prints results only to standard output and does not store them in MongoDB itself. If you want to persist them automatically in database for later usage, you can set the parameter ```persistResults```.
+By default, Variety prints results only to standard output and does not store them in MongoDB itself. If you want to persist them automatically in MongoDB for later usage, you can set the parameter ```persistResults```.
 Variety then stores result documents in database ```varietyResults``` and the collection name is derived from the source collection's name.
 If the source collection's name is ```users```, Variety will store results in collection ```usersKeys``` under ```varietyResults``` database.
 
     $ mongo test --quiet --eval "var collection = 'users', persistResults=true" variety.js
+
+To persist to an alternate MongoDB database, you may specify the following parameters:
+
+  * `resultsDatabase` - The database to store Variety results in. Accepts either a database name or a `host[:port]/database` URL.
+  * `resultsCollection` - Collection to store Variety results in. **WARNING:** This collection is dropped before results are inserted.
+  * `resultsUser` - MongoDB username for results database
+  * `resultsPass` - MongoDB password for results database
+
+```
+$ mongo test --quiet --eval "var collection = 'users', persistResults=true, resultsDatabase='db.example.com/variety' variety.js
+```
+
+### Reserved Keys ###
+Variety expects keys to be well formed, not having any '.'s in them (mongo 2.4 allows dots in certain cases).  Also mongo uses the pseudo keys 'XX' and keys coresponding to the regex 'XX\d+XX.*' for use with arrays.  You can change the string XX in these patterns to whatever you like if there is a conflict in your database using the `arrayEscape` parameter.  
+
+    $ mongo test --quiet --eval "var collection = 'users', arrayEscape = 'YY'" variety.js
+
+### Command Line Interface
+Variety itself is command line friendly, as shown on examples above.
+But if you are a NPM and Node.js user, you could prefer the
+[variety-cli](https://github.com/variety/variety-cli) project. It simplifies usage of
+Variety and removes all the complexity of passing variables in the ```--eval``` argument and
+providing a path to the variety.js library.
+
+Example of a simplified command-line usage:
+```
+variety test/users --outputFormat='json' --quiet
+```
+For more details see the [documentation of variety-cli project](https://github.com/variety/variety-cli).
 
 ##### "But my dad told me MongoDB is a schemaless database!" #####
 
@@ -165,6 +253,29 @@ A Mongo collection does not enforce a predefined schema like a relational databa
 
 Absolutely none, except MongoDB. Written in 100% JavaScript. _(mongod's "noscripting" may not be set to true, and 'strict mode' must be disabled.)_
 
+##### Development, Hacking #####
+This project is NPM based and provides standard NPM functionality. As an additional (not required) dependency, [Docker](https://www.docker.com/) can be installed to test against different MongoDB versions.
+
+To install all dev dependencies call as usual:
+```
+npm install
+```
+
+By default, tests expect MongoDB available on ```localhost:27017``` and can be executed by calling:
+
+```
+npm test
+```
+
+If you have Docker installed and don't want to test against your own MongoDB instance,
+you can execute tests against dockerized MongoDB:
+
+```
+MONGODB_VERSION=3.2 npm run test:docker
+```
+The script downloads one of [official MongoDB images](https://hub.docker.com/_/mongo/) (based on your provided version),
+starts the database, executes test suite against it (inside the container) and stops the DB.
+
 #### Reporting Issues / Contributing ####
 
 Please report any bugs and feature requests on the Github issue tracker. I will read all reports!
@@ -173,23 +284,23 @@ I accept pull requests from forks. Very grateful to accept contributions from fo
 
 #### Core Maintainers ####
 
-* Tomáš Dvořák ([personal website] (http://www.tomas-dvorak.cz/))
-* Wes Freeman ([software/chess blog] (http://wes.skeweredrook.com))
-* James Cropcho (original creator of Variety) ([Twitter] (https://twitter.com/Cropcho))
+* Tomáš Dvořák ([personal website](http://www.tomas-dvorak.cz/))
+* Eve Freeman ([Twitter](https://twitter.com/wefreema))
+* James Cropcho (original creator of Variety) ([Twitter](https://twitter.com/Cropcho))
 
 #### Special Thanks ####
 
-Additional special thanks to Gaëtan Voyer-Perraul ([@gatesvp] (https://twitter.com/#!/@gatesvp)) and Kristina Chodorow ([@kchodorow] (https://twitter.com/#!/kchodorow)) for answering other people's questions about how to do this on Stack Overflow, thereby providing me with the initial seed of code which grew into this tool.
+Additional special thanks to Gaëtan Voyer-Perraul ([@gatesvp](https://twitter.com/#!/@gatesvp)) and Kristina Chodorow ([@kchodorow](https://twitter.com/#!/kchodorow)) for answering other people's questions about how to do this on Stack Overflow, thereby providing me with the initial seed of code which grew into this tool.
 
-Much thanks also, to Kyle Banker ([@Hwaet] (https://twitter.com/#!/hwaet)) for writing an unusually good book on MongoDB, which has taught me everything I know about it so far.
+Much thanks also, to Kyle Banker ([@Hwaet](https://twitter.com/#!/hwaet)) for writing an unusually good book on MongoDB, which has taught me everything I know about it so far.
 
 #### Tools Which Use Variety (Open Source) ####
 
-* [MightyMightyMongo](https://github.com/JacobGH111/mightymightymongo) (experimental): a browser-based GUI for exploring MongoDB collections, it allows users to also view Variety results. The project is not directly affiliated with Variety, however the creator/core committer has also contributed to Variety.
+Know of one? Built one? Let us know!
 
 ##### Stay Safe #####
 
 I have every reason to believe this tool will **not** corrupt your data or harm your computer. But if I were you, I would not use it in a production environment.
 
 
-Released by Maypop Inc, © 2012–2015, under the [MIT License] (http://www.opensource.org/licenses/MIT).
+Released by Maypop Inc, © 2012–2020, under the [MIT License] (http://www.opensource.org/licenses/MIT).
